@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>GuardaPorta IoT</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <style>
+    :root {
+      --bg:        #0d0f12;
+      --surface:   #161a1f;
+      --surface2:  #1e2329;
+      --border:    rgba(255,255,255,0.06);
+      --border2:   rgba(255,255,255,0.12);
+      --text:      #e8eaed;
+      --muted:     #6b7280;
+      --accent:    #00e5b4;
+      --accent2:   #0099ff;
+      --danger:    #ff4d4d;
+      --warn:      #ffb84d;
+      --ok:        #22c55e;
+      --radius:    12px;
+      --radius-sm: 8px;
+      --mono:      'Space Mono', monospace;
+      --sans:      'IBM Plex Sans', sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      min-height: 100vh;
+      font-size: 15px;
+      line-height: 1.5;
+    }
+
+    /* ─── Header ─────────────────────────────── */
+    header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      background: rgba(13,15,18,0.92);
+      backdrop-filter: blur(12px);
+      z-index: 100;
+    }
+
+    .logo {
+      font-family: var(--mono);
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: 0.08em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .logo-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.5; transform: scale(0.8); }
+    }
+
+    .serial-badge {
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      border: 1px solid;
+      transition: all 0.3s;
+    }
+
+    .serial-badge.connected {
+      color: var(--ok);
+      border-color: rgba(34,197,94,0.3);
+      background: rgba(34,197,94,0.07);
+    }
+
+    .serial-badge.disconnected {
+      color: var(--muted);
+      border-color: var(--border);
+      background: transparent;
+    }
+
+    /* ─── Layout ─────────────────────────────── */
+    main {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 20px 16px 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    /* ─── Status Card ────────────────────────── */
+    .status-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: border-color 0.4s;
+    }
+
+    .status-card.alarme { border-color: rgba(255,77,77,0.4); }
+    .status-card.aberta { border-color: rgba(255,184,77,0.4); }
+    .status-card.senha  { border-color: rgba(0,153,255,0.4); }
+    .status-card.ok     { border-color: rgba(34,197,94,0.2); }
+
+    .status-top {
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .status-icon {
+      width: 52px; height: 52px;
+      border-radius: var(--radius);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 24px;
+      flex-shrink: 0;
+      position: relative;
+      transition: background 0.4s;
+    }
+
+    .status-icon.alarme  { background: rgba(255,77,77,0.12); }
+    .status-icon.aberta  { background: rgba(255,184,77,0.12); }
+    .status-icon.senha   { background: rgba(0,153,255,0.12); }
+    .status-icon.ok      { background: rgba(34,197,94,0.08); }
+
+    .status-label {
+      font-size: 12px;
+      font-family: var(--mono);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .status-title {
+      font-size: 20px;
+      font-weight: 600;
+      transition: color 0.3s;
+    }
+
+    .status-title.alarme { color: var(--danger); }
+    .status-title.aberta { color: var(--warn); }
+    .status-title.senha  { color: var(--accent2); }
+    .status-title.ok     { color: var(--ok); }
+
+    .status-sub {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    /* ─── Alarme animação ────────────────────── */
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      20%       { transform: translateX(-6px) rotate(-1deg); }
+      40%       { transform: translateX(6px) rotate(1deg); }
+      60%       { transform: translateX(-4px); }
+      80%       { transform: translateX(4px); }
+    }
+
+    .shake { animation: shake 0.6s ease-in-out; }
+
+    @keyframes alarm-flash {
+      0%, 100% { border-color: rgba(255,77,77,0.15); }
+      50%       { border-color: rgba(255,77,77,0.6); }
+    }
+
+    .alarm-flashing { animation: alarm-flash 0.6s ease-in-out infinite; }
+
+    /* ─── Countdown ──────────────────────────── */
+    .countdown-bar {
+      height: 3px;
+      background: var(--border);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .countdown-fill {
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      background: var(--accent2);
+      transition: width 0.9s linear, background 0.5s;
+    }
+
+    .countdown-fill.urgente { background: var(--danger); }
+
+    .countdown-label {
+      padding: 8px 20px 14px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .countdown-num {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--accent2);
+      transition: color 0.3s;
+    }
+
+    .countdown-num.urgente { color: var(--danger); }
+
+    /* ─── Seção de Senha ─────────────────────── */
+    .senha-section {
+      background: var(--surface);
+      border: 1px solid rgba(0,153,255,0.2);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+
+    .senha-section h2 {
+      font-size: 14px;
+      font-weight: 500;
+      margin-bottom: 4px;
+    }
+
+    .senha-section p {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 16px;
+    }
+
+    /* Teclado numérico */
+    .pin-display {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      margin-bottom: 16px;
+    }
+
+    .pin-dot {
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      border: 2px solid var(--border2);
+      background: transparent;
+      transition: all 0.2s;
+    }
+
+    .pin-dot.filled {
+      background: var(--accent2);
+      border-color: var(--accent2);
+      transform: scale(1.1);
+    }
+
+    .pin-dot.error {
+      background: var(--danger);
+      border-color: var(--danger);
+      animation: shake 0.4s ease;
+    }
+
+    .keypad {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .key-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 18px;
+      font-weight: 700;
+      height: 56px;
+      cursor: pointer;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .key-btn:active {
+      background: var(--border2);
+      transform: scale(0.94);
+    }
+
+    .key-btn.zero { grid-column: 2; }
+    .key-btn.del  { grid-column: 3; font-size: 14px; color: var(--muted); }
+
+    .confirm-btn {
+      width: 100%;
+      margin-top: 10px;
+      height: 48px;
+      background: var(--accent2);
+      border: none;
+      border-radius: var(--radius-sm);
+      color: #fff;
+      font-family: var(--sans);
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      letter-spacing: 0.02em;
+    }
+
+    .confirm-btn:hover   { background: #2da8ff; }
+    .confirm-btn:active  { transform: scale(0.98); }
+    .confirm-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .feedback-msg {
+      margin-top: 10px;
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      text-align: center;
+      display: none;
+    }
+
+    .feedback-msg.ok {
+      background: rgba(34,197,94,0.1);
+      color: var(--ok);
+      border: 1px solid rgba(34,197,94,0.2);
+      display: block;
+    }
+
+    .feedback-msg.err {
+      background: rgba(255,77,77,0.1);
+      color: var(--danger);
+      border: 1px solid rgba(255,77,77,0.2);
+      display: block;
+    }
+
+    /* ─── Ações Admin ────────────────────────── */
+    .admin-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+    }
+
+    .section-title {
+      font-size: 11px;
+      font-family: var(--mono);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .admin-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .admin-input {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 14px;
+      padding: 10px 12px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .admin-input:focus { border-color: var(--border2); }
+
+    .btn-desarmar {
+      padding: 0 18px;
+      background: rgba(255,77,77,0.1);
+      border: 1px solid rgba(255,77,77,0.25);
+      border-radius: var(--radius-sm);
+      color: var(--danger);
+      font-family: var(--sans);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.2s;
+    }
+
+    .btn-desarmar:hover { background: rgba(255,77,77,0.2); }
+
+    /* ─── Histórico ──────────────────────────── */
+    .history-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .history-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .history-list {
+      max-height: 240px;
+      overflow-y: auto;
+    }
+
+    .history-item {
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 13px;
+    }
+
+    .history-item:last-child { border-bottom: none; }
+
+    .h-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .h-dot.alarme  { background: var(--danger); }
+    .h-dot.porta   { background: var(--warn); }
+    .h-dot.senha   { background: var(--accent2); }
+    .h-dot.default { background: var(--muted); }
+
+    .h-tipo { font-weight: 500; flex: 1; }
+    .h-time { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+
+    /* ─── Simular (dev) ──────────────────────── */
+    .dev-section {
+      background: var(--surface);
+      border: 1px dashed var(--border2);
+      border-radius: var(--radius);
+      padding: 14px 20px;
+    }
+
+    .dev-btns {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .btn-sim {
+      flex: 1;
+      padding: 9px 0;
+      background: transparent;
+      border: 1px solid var(--border2);
+      border-radius: var(--radius-sm);
+      color: var(--muted);
+      font-size: 12px;
+      font-family: var(--mono);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-sim:hover { color: var(--text); border-color: var(--accent); }
+
+    /* ─── Distância ──────────────────────────── */
+    .dist-pill {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 2px 8px;
+      background: var(--surface2);
+      border-radius: 20px;
+      color: var(--muted);
+      margin-left: 6px;
+    }
+
+    /* ─── Responsive ─────────────────────────── */
+    @media (min-width: 520px) {
+      main { padding: 24px 24px 60px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-dot"></div>
+    GUARDAPORTA
+  </div>
+  <div class="serial-badge disconnected" id="serial-badge">● SEM SERIAL</div>
+</header>
+
+<main>
+
+  <!-- STATUS CARD -->
+  <div class="status-card ok" id="status-card">
+    <div class="status-top">
+      <div class="status-icon ok" id="status-icon">
+        <span id="status-emoji">🔒</span>
+      </div>
+      <div>
+        <div class="status-label">ESTADO DO SISTEMA</div>
+        <div class="status-title ok" id="status-title">Sistema seguro</div>
+        <div class="status-sub" id="status-sub">
+          Porta fechada · Alarme desativado
+        </div>
+      </div>
+    </div>
+    <!-- Countdown bar (oculto por padrão) -->
+    <div id="countdown-container" style="display:none">
+      <div class="countdown-bar">
+        <div class="countdown-fill" id="countdown-fill"></div>
+      </div>
+      <div class="countdown-label">
+        Tempo para digitar a senha:
+        <span class="countdown-num" id="countdown-num">--</span>s
+      </div>
+    </div>
+  </div>
+
+  <!-- SEÇÃO DE SENHA (aparece quando porta abrir) -->
+  <div class="senha-section" id="senha-section" style="display:none">
+    <h2>Digite a senha de acesso</h2>
+    <p>Porta aberta detectada · Cancele o alarme agora</p>
+
+    <div class="pin-display" id="pin-display">
+      <div class="pin-dot" id="dot0"></div>
+      <div class="pin-dot" id="dot1"></div>
+      <div class="pin-dot" id="dot2"></div>
+      <div class="pin-dot" id="dot3"></div>
+    </div>
+
+    <div class="keypad">
+      <button class="key-btn" onclick="addDigit('1')">1</button>
+      <button class="key-btn" onclick="addDigit('2')">2</button>
+      <button class="key-btn" onclick="addDigit('3')">3</button>
+      <button class="key-btn" onclick="addDigit('4')">4</button>
+      <button class="key-btn" onclick="addDigit('5')">5</button>
+      <button class="key-btn" onclick="addDigit('6')">6</button>
+      <button class="key-btn" onclick="addDigit('7')">7</button>
+      <button class="key-btn" onclick="addDigit('8')">8</button>
+      <button class="key-btn" onclick="addDigit('9')">9</button>
+      <button class="key-btn zero" onclick="addDigit('0')">0</button>
+      <button class="key-btn del" onclick="delDigit()">⌫</button>
+    </div>
+    <button class="confirm-btn" id="confirm-btn" onclick="enviarSenha()" disabled>
+      Confirmar
+    </button>
+    <div class="feedback-msg" id="feedback-msg"></div>
+  </div>
+
+  <!-- ADMIN: DESARMAR -->
+  <div class="admin-section" id="admin-section" style="display:none">
+    <div class="section-title">Controle admin</div>
+    <div class="admin-row">
+      <input type="password" class="admin-input" id="admin-senha"
+             placeholder="Senha admin" maxlength="16">
+      <button class="btn-desarmar" onclick="desarmar()">Desarmar</button>
+    </div>
+    <div class="feedback-msg" id="admin-feedback"></div>
+  </div>
+
+  <!-- HISTÓRICO -->
+  <div class="history-section">
+    <div class="history-header">
+      <div class="section-title" style="margin:0">Últimos eventos</div>
+      <button onclick="carregarEventos()" style="background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;font-family:var(--mono)">↻ atualizar</button>
+    </div>
+    <div class="history-list" id="history-list">
+      <div class="history-item" style="color:var(--muted);font-size:12px;justify-content:center">
+        Carregando...
+      </div>
+    </div>
+  </div>
+
+  <!-- SIMULAÇÃO (para testes sem hardware) -->
+  <div class="dev-section">
+    <div class="section-title">Simulação · sem hardware</div>
+    <div class="dev-btns">
+      <button class="btn-sim" onclick="simular('abrir')">▶ abrir porta</button>
+      <button class="btn-sim" onclick="simular('fechar')">◼ fechar porta</button>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ─── Config ───────────────────────────────────────────────────────────────────
+const BASE = '';  // mesmo host
+
+// ─── State ────────────────────────────────────────────────────────────────────
+let pinAtual = '';
+let tempoTotal = 15;
+let tempoRestante = 15;
+
+// ─── WebSocket ────────────────────────────────────────────────────────────────
+const socket = io(BASE, { transports: ['websocket', 'polling'] });
+
+socket.on('connect',    () => console.log('[WS] conectado'));
+socket.on('disconnect', () => console.log('[WS] desconectado'));
+
+socket.on('estado_atualizado', (e) => aplicarEstado(e));
+
+socket.on('porta_aberta', (d) => {
+  tempoTotal = d.tempo_limite || 15;
+  tempoRestante = tempoTotal;
+  mostrarSenha();
+  atualizarCountdown(tempoRestante);
+});
+
+socket.on('tempo_senha', (d) => {
+  tempoRestante = d.restante;
+  atualizarCountdown(tempoRestante);
+});
+
+socket.on('senha_resultado', (d) => {
+  mostrarFeedback(d.ok ? 'ok' : 'err', d.msg);
+  if (d.ok) {
+    limparPin();
+    setTimeout(() => { document.getElementById('senha-section').style.display = 'none'; }, 1500);
+  } else {
+    animarErroPin();
+    setTimeout(limparPin, 600);
+  }
+});
+
+socket.on('serial_status', (d) => {
+  const badge = document.getElementById('serial-badge');
+  if (d.conectado) {
+    badge.textContent = `● ${d.porta}`;
+    badge.className = 'serial-badge connected';
+  } else {
+    badge.textContent = '● SEM SERIAL';
+    badge.className = 'serial-badge disconnected';
+  }
+});
+
+// ─── Aplica Estado ────────────────────────────────────────────────────────────
+function aplicarEstado(e) {
+  const card     = document.getElementById('status-card');
+  const icon     = document.getElementById('status-icon');
+  const emoji    = document.getElementById('status-emoji');
+  const title    = document.getElementById('status-title');
+  const sub      = document.getElementById('status-sub');
+  const adminSec = document.getElementById('admin-section');
+  const senhaSec = document.getElementById('senha-section');
+  const contDown = document.getElementById('countdown-container');
+
+  // Remove classes anteriores
+  ['alarme','aberta','senha','ok'].forEach(c => {
+    card.classList.remove(c);
+    icon.classList.remove(c);
+    title.classList.remove(c);
+  });
+  card.classList.remove('alarm-flashing');
+
+  if (e.alarme_ativo) {
+    card.classList.add('alarme', 'alarm-flashing');
+    icon.classList.add('alarme');
+    title.classList.add('alarme');
+    emoji.textContent = '🚨';
+    title.textContent = 'ALARME ATIVO!';
+    sub.innerHTML = 'Intruso detectado <span class="dist-pill">' + e.ultima_distancia + ' cm</span>';
+    adminSec.style.display = 'block';
+    senhaSec.style.display = 'none';
+    contDown.style.display = 'none';
+    card.classList.add('shake');
+    setTimeout(() => card.classList.remove('shake'), 700);
+  }
+  else if (e.aguardando_senha) {
+    card.classList.add('senha');
+    icon.classList.add('senha');
+    title.classList.add('senha');
+    emoji.textContent = '⚠️';
+    title.textContent = 'Porta aberta!';
+    sub.innerHTML = 'Aguardando senha <span class="dist-pill">' + e.ultima_distancia + ' cm</span>';
+    senhaSec.style.display = 'block';
+    adminSec.style.display = 'none';
+    contDown.style.display = 'block';
+  }
+  else if (e.porta_aberta) {
+    card.classList.add('aberta');
+    icon.classList.add('aberta');
+    title.classList.add('aberta');
+    emoji.textContent = '🚪';
+    title.textContent = 'Porta aberta';
+    sub.innerHTML = 'Aguardando fechar <span class="dist-pill">' + e.ultima_distancia + ' cm</span>';
+    senhaSec.style.display = 'none';
+    adminSec.style.display = 'none';
+    contDown.style.display = 'none';
+  }
+  else {
+    card.classList.add('ok');
+    icon.classList.add('ok');
+    title.classList.add('ok');
+    emoji.textContent = '🔒';
+    title.textContent = 'Sistema seguro';
+    sub.textContent = 'Porta fechada · Alarme desativado';
+    senhaSec.style.display = 'none';
+    adminSec.style.display = 'none';
+    contDown.style.display = 'none';
+  }
+}
+
+// ─── Countdown ────────────────────────────────────────────────────────────────
+function atualizarCountdown(restante) {
+  const fill = document.getElementById('countdown-fill');
+  const num  = document.getElementById('countdown-num');
+  const pct  = (restante / tempoTotal) * 100;
+  fill.style.width = pct + '%';
+  num.textContent = restante;
+
+  const urgente = restante <= 5;
+  fill.classList.toggle('urgente', urgente);
+  num.classList.toggle('urgente', urgente);
+}
+
+// ─── Teclado PIN ─────────────────────────────────────────────────────────────
+function mostrarSenha() {
+  document.getElementById('senha-section').style.display = 'block';
+  limparPin();
+}
+
+function addDigit(d) {
+  if (pinAtual.length >= 4) return;
+  pinAtual += d;
+  atualizarDots();
+  document.getElementById('confirm-btn').disabled = (pinAtual.length < 4);
+}
+
+function delDigit() {
+  pinAtual = pinAtual.slice(0, -1);
+  atualizarDots();
+  document.getElementById('confirm-btn').disabled = (pinAtual.length < 4);
+}
+
+function atualizarDots() {
+  for (let i = 0; i < 4; i++) {
+    const dot = document.getElementById('dot' + i);
+    dot.classList.toggle('filled', i < pinAtual.length);
+    dot.classList.remove('error');
+  }
+}
+
+function animarErroPin() {
+  for (let i = 0; i < 4; i++) {
+    const dot = document.getElementById('dot' + i);
+    dot.classList.add('error');
+    dot.classList.remove('filled');
+  }
+}
+
+function limparPin() {
+  pinAtual = '';
+  atualizarDots();
+  document.getElementById('confirm-btn').disabled = true;
+  document.getElementById('feedback-msg').style.display = 'none';
+  document.getElementById('feedback-msg').className = 'feedback-msg';
+}
+
+async function enviarSenha() {
+  if (pinAtual.length < 4) return;
+  const btn = document.getElementById('confirm-btn');
+  btn.disabled = true;
+  btn.textContent = 'Verificando...';
+
+  try {
+    const r = await fetch(BASE + '/api/senha', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ senha: pinAtual })
+    });
+    const d = await r.json();
+    mostrarFeedback(d.ok ? 'ok' : 'err', d.msg);
+    if (!d.ok) {
+      animarErroPin();
+      setTimeout(limparPin, 800);
+    }
+  } catch(e) {
+    mostrarFeedback('err', 'Erro de conexão com o servidor');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Confirmar';
+  }
+}
+
+function mostrarFeedback(tipo, msg) {
+  const el = document.getElementById('feedback-msg');
+  el.textContent = msg;
+  el.className = 'feedback-msg ' + tipo;
+}
+
+// ─── Desarmar Admin ───────────────────────────────────────────────────────────
+async function desarmar() {
+  const senha = document.getElementById('admin-senha').value;
+  const fb    = document.getElementById('admin-feedback');
+
+  try {
+    const r = await fetch(BASE + '/api/desarmar', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ senha })
+    });
+    const d = await r.json();
+    fb.textContent = d.msg;
+    fb.className   = 'feedback-msg ' + (d.ok ? 'ok' : 'err');
+    if (d.ok) document.getElementById('admin-senha').value = '';
+  } catch(e) {
+    fb.textContent = 'Erro de conexão';
+    fb.className   = 'feedback-msg err';
+  }
+}
+
+// ─── Histórico ────────────────────────────────────────────────────────────────
+async function carregarEventos() {
+  try {
+    const r = await fetch(BASE + '/api/eventos?limit=20');
+    const eventos = await r.json();
+    const lista = document.getElementById('history-list');
+
+    if (!eventos.length) {
+      lista.innerHTML = '<div class="history-item" style="color:var(--muted);font-size:12px;justify-content:center">Sem eventos</div>';
+      return;
+    }
+
+    lista.innerHTML = eventos.map(ev => {
+      const dotClass = ev.tipo.includes('ALARME') ? 'alarme'
+                     : ev.tipo.includes('PORTA')  ? 'porta'
+                     : ev.tipo.includes('SENHA')  ? 'senha' : 'default';
+      const d = new Date(ev.timestamp);
+      const hora = d.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+      const detalhe = ev.detalhe ? ` · ${ev.detalhe}` : '';
+      return `
+        <div class="history-item">
+          <div class="h-dot ${dotClass}"></div>
+          <div class="h-tipo">${ev.tipo.replace(/_/g,' ')}${detalhe}</div>
+          <div class="h-time">${hora}</div>
+        </div>`;
+    }).join('');
+  } catch(e) {
+    console.error('Erro ao carregar eventos:', e);
+  }
+}
+
+// ─── Simulação ────────────────────────────────────────────────────────────────
+async function simular(acao) {
+  await fetch(BASE + '/api/simular_porta', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ acao })
+  });
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+carregarEventos();
+setInterval(carregarEventos, 10000);
+
+// Carrega estado inicial
+fetch(BASE + '/api/estado')
+  .then(r => r.json())
+  .then(aplicarEstado)
+  .catch(() => {});
+
+// Suporte ao teclado físico
+document.addEventListener('keydown', (e) => {
+  const senhaSection = document.getElementById('senha-section');
+  if (senhaSection.style.display === 'none') return;
+  if (e.key >= '0' && e.key <= '9') addDigit(e.key);
+  else if (e.key === 'Backspace') delDigit();
+  else if (e.key === 'Enter') enviarSenha();
+});
+</script>
+</body>
+</html>
