@@ -13,6 +13,7 @@ import re
 import threading
 import time
 import sqlite3
+import os
 from datetime import datetime
 
 import serial
@@ -26,6 +27,14 @@ SERIAL_TIMEOUT = 1
 DB_PATH       = "alarme.db"
 SENHA_CORRETA = "1234"   # altere aqui
 TEMPO_SENHA_S = 10       # segundos para digitar a senha
+
+# Limpar banco de dados antigo para evitar conflitos de schema
+if os.path.exists(DB_PATH):
+    try:
+        os.remove(DB_PATH)
+        print(f"[DB] Banco de dados antigo removido para recriação com novo schema")
+    except Exception as e:
+        print(f"[DB] Aviso: não foi possível remover banco antigo: {e}")
 
 # ─── Flask ────────────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -46,8 +55,14 @@ arduino_serial = None
 lock = threading.Lock()
 
 # ─── Banco de Dados ───────────────────────────────────────────────────────────
+def get_db_connection():
+    """Cria uma conexão com timeout para evitar locks."""
+    conn = sqlite3.connect(DB_PATH, timeout=10.0)
+    conn.execute("PRAGMA journal_mode=WAL")  # Write-Ahead Logging para melhor concorrência
+    return conn
+
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     c = conn.cursor()
     c.execute("""
         CREATE TABLE IF NOT EXISTS eventos (
@@ -61,6 +76,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS tentativas_senha (
             id        INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT NOT NULL,
+            senha     TEXT,
             sucesso   INTEGER NOT NULL
         )
     """)
@@ -68,35 +84,45 @@ def init_db():
     conn.close()
 
 def log_evento(tipo, detalhe=""):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        "INSERT INTO eventos (timestamp, tipo, detalhe) VALUES (?, ?, ?)",
-        (datetime.now().isoformat(), tipo, detalhe)
-    )
-    conn.commit()
-    conn.close()
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute(
+            "INSERT INTO eventos (timestamp, tipo, detalhe) VALUES (?, ?, ?)",
+            (datetime.now().isoformat(), tipo, detalhe)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Erro ao logar evento: {e}")
 
-def log_senha(sucesso):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        "INSERT INTO tentativas_senha (timestamp, sucesso) VALUES (?, ?)",
-        (datetime.now().isoformat(), int(sucesso))
-    )
-    conn.commit()
-    conn.close()
+def log_senha(sucesso, senha=""):
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute(
+            "INSERT INTO tentativas_senha (timestamp, senha, sucesso) VALUES (?, ?, ?)",
+            (datetime.now().isoformat(), senha, int(sucesso))
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Erro ao logar tentativa de senha: {e}")
 
 def get_eventos(limit=50):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        "SELECT timestamp, tipo, detalhe FROM eventos ORDER BY id DESC LIMIT ?",
-        (limit,)
-    )
-    rows = [{"timestamp": r[0], "tipo": r[1], "detalhe": r[2]} for r in c.fetchall()]
-    conn.close()
-    return rows
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute(
+            "SELECT timestamp, tipo, detalhe FROM eventos ORDER BY id DESC LIMIT ?",
+            (limit,)
+        )
+        rows = [{"timestamp": r[0], "tipo": r[1], "detalhe": r[2]} for r in c.fetchall()]
+        conn.close()
+        return rows
+    except Exception as e:
+        print(f"[DB] Erro ao buscar eventos: {e}")
+        return []
 
 # ─── Serial ───────────────────────────────────────────────────────────────────
 def encontrar_arduino():
@@ -126,7 +152,7 @@ def acionar_alarme():
     enviar_comando_serial("ALARME")
     log_evento("ALARME_ACIONADO")
     socketio.emit("estado_atualizado", get_estado_publico())
-    print("[APP] 🚨 ALARME ACIONADO!")
+    print("[APP] ALARME ACIONADO!")
 
 def desarmar_alarme():
     with lock:
@@ -136,7 +162,7 @@ def desarmar_alarme():
     enviar_comando_serial("DESARMAR")
     log_evento("ALARME_DESARMADO")
     socketio.emit("estado_atualizado", get_estado_publico())
-    print("[APP] ✅ Alarme desarmado.")
+    print("[APP] Alarme desarmado.")
 
 def thread_timeout_senha():
     inicio = estado["tempo_senha_inicio"]
@@ -151,7 +177,7 @@ def thread_timeout_senha():
         socketio.emit("tempo_senha", {"restante": max(0, int(restante))})
 
         if restante <= 0:
-            print("[APP] ⏰ Tempo esgotado! Acionando alarme.")
+            print("[APP] Tempo esgotado! Acionando alarme.")
             log_evento("TIMEOUT_SENHA", f"Sem senha em {TEMPO_SENHA_S}s")
             acionar_alarme()
             return
@@ -190,14 +216,14 @@ def processar_mensagem_arduino(linha):
                 "distancia":    distancia,
                 "tempo_limite": TEMPO_SENHA_S
             })
-            print(f"[APP] 🚪 Porta aberta! Distância: {distancia}cm")
+            print(f"[APP] Porta aberta! Distância: {distancia}cm")
 
     elif linha == "PORTA_FECHADA":
         with lock:
             estado["porta_aberta"] = False
         log_evento("PORTA_FECHADA")
         socketio.emit("estado_atualizado", get_estado_publico())
-        print("[APP] 🚪 Porta fechada.")
+        print("[APP] Porta fechada.")
 
 def thread_serial_reader():
     global arduino_serial
@@ -265,18 +291,18 @@ def api_senha():
         return jsonify({"ok": False, "msg": "Não está aguardando senha."}), 400
 
     sucesso = (senha_digitada == SENHA_CORRETA)
-    log_senha(sucesso)
+    log_senha(sucesso, senha_digitada)
 
     if sucesso:
         log_evento("SENHA_CORRETA")
         desarmar_alarme()
         socketio.emit("senha_resultado", {"ok": True, "msg": "Senha correta! Sistema ok."})
-        print("[APP] ✅ Senha correta.")
+        print("[APP] Senha correta.")
         return jsonify({"ok": True, "msg": "Senha correta!"})
     else:
         log_evento("SENHA_ERRADA")
         socketio.emit("senha_resultado", {"ok": False, "msg": "Senha incorreta! Alarme acionado."})
-        print("[APP] ❌ Senha errada! Acionando alarme.")
+        print("[APP] Senha errada! Acionando alarme.")
         threading.Thread(target=acionar_alarme, daemon=True).start()
         return jsonify({"ok": False, "msg": "Senha incorreta! Alarme acionado."})
 
