@@ -16,10 +16,10 @@
 // ─── Identificadores ──────────────────────────────────────────────────────────
 #define ID_P7      7
 #define ID_GATEWAY 13
-#define CANAL_RF   100
+#define CANAL_RF   12
 
-const uint64_t ADDR_P7      = 0x0707070707LL;
-const uint64_t ADDR_GATEWAY = 0x1313131313LL;
+const uint64_t ADDR_P7      = 0x3030303030LL;
+const uint64_t ADDR_GATEWAY = 0x3030303030LL;
 
 // ─── Tipos de Mensagem ────────────────────────────────────────────────────────
 #define MSG_RTS    0x01
@@ -212,11 +212,12 @@ void setup() {
   digitalWrite(LED2_PIN, LOW);
 
   radio.begin();
-  radio.setPALevel(RF24_PA_LOW);
+  radio.setPALevel(RF24_PA_HIGH);
   radio.setChannel(CANAL_RF);
   radio.setAutoAck(false);
   radio.setDataRate(RF24_250KBPS);
   radio.setRetries(0, 0);
+  radio.setCRCLength(RF24_CRC_DISABLED);
   radio.setPayloadSize(sizeof(Payload));
   modoRX();
 
