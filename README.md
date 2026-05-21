@@ -1,3 +1,8 @@
+# Integrantes
+- Juan Lucas Benevides Ramos - 2304252
+- Felipe Roskosz Moran - 2482100
+- Raquel de Oliveira - 2399113
+
 # 🔐 GuardaPorta IoT
 
 Sistema de alarme de porta com detecção por sensor ultrassônico, protocolo de comunicação sem fio MACA com four-way handshake e painel de controle web para smartphone.
