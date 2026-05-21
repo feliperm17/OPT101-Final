@@ -16,13 +16,13 @@
 // ─── Identificadores ──────────────────────────────────────────────────────────
 #define ID_PLACA   30
 #define ID_GATEWAY 13
-#define CANAL_RF   100
+#define CANAL_RF   12
 
 // ─── Threshold do sensor ──────────────────────────────────────────────────────
 #define DIST_THRESHOLD_CM 20  // acima de 20cm = porta aberta
 
 const uint64_t ADDR_P30     = 0x3030303030LL;
-const uint64_t ADDR_GATEWAY = 0x1313131313LL;
+const uint64_t ADDR_GATEWAY = 0x3030303030LL;
 
 // ─── Tipos de Mensagem ────────────────────────────────────────────────────────
 #define MSG_RTS    0x01
@@ -208,11 +208,12 @@ void setup() {
   pinMode(ECHO_PIN, INPUT);
 
   radio.begin();
-  radio.setPALevel(RF24_PA_LOW);
+  radio.setPALevel(RF24_PA_HIGH);
   radio.setChannel(CANAL_RF);
   radio.setAutoAck(false);
   radio.setDataRate(RF24_250KBPS);
   radio.setRetries(0, 0);
+  radio.setCRCLength(RF24_CRC_DISABLED);
   radio.setPayloadSize(sizeof(Payload));
   modoRX();
 
